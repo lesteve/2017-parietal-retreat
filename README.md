@@ -11,9 +11,17 @@
 then with more.
 
 - Samples direction:
-    - IsolationForest
+    - IsolationForest (scales aproximatly linear with samples)
     - LOF
     - One-class SVM
+
+- Notes:
+   LOF and One-class SVM don't scale properly so we'll add Brich before running
+   the anomaly detector
+
+# Experiments
+1 - ReNA + One-class SVM (using kmeans)                - Mathurin
+2 - downsampling + lof(using brich)                    - Sik
 
 # some title
 
