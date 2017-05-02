@@ -34,3 +34,11 @@ Not necesarily a good idea to use a masker. Maybe do a clustering of
 
 Application goal: feedback for people put the right flag when
 uploading data on NeuroVault.
+
+# Building a dataset to test stuff
+
+This loads an valid dataset (but it only has 34 images)
+
+```
+dd = datasets.fetch_neurovault(max_images=None, mode='offline', image_terms={'collection_id':656})
+```
