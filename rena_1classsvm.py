@@ -1,6 +1,6 @@
-from utils import load_data
 from scipy.stats import kurtosis
 from sklearn.svm import OneClassSVM
+from sklearn.cluster import KMeans
 from nilearn.plotting import plot_epi
 from nilearn import datasets
 from nilearn.input_data import NiftiMasker
@@ -9,6 +9,13 @@ import numpy as np
 import sys
 sys.path.append('../ReNA')
 from rena import ReNA
+from utils import load_data
+
+
+def get_dummy_features(X):
+    feats = [np.mean, np.max, np.min, np.std, kurtosis]
+    return np.concatenate([feat(X, axis=1)[:, None] for feat in feats],
+                          axis=1)
 
 
 def get_data_by_indices(neurovault_data, indices):
@@ -67,13 +74,14 @@ if __name__ == "__main__":
     slice_size = 500
     for slice_start in range(0, n_samples, slice_size):
         print("Processing slice starting at %d" % slice_start)
-        indices = range(slice_start, min(slice_start + slice_size, n_samples))
+        slice_end = min(slice_start + slice_size, n_samples)
+        indices = range(slice_start, slice_end)
         X = get_data_by_indices(neurovault_data, indices)
-        means[slice_start: min(slice_start + slice_size, n_samples)] = np.mean(X, axis=1)
-        maxs[slice_start: min(slice_start + slice_size, n_samples)] = np.max(X, axis=1)
-        mins[slice_start: min(slice_start + slice_size, n_samples)] = np.min(X, axis=1)
-        stddevs[slice_start: min(slice_start + slice_size, n_samples)] = np.std(X, axis=1)
-        kurts[slice_start: min(slice_start + slice_size, n_samples)] = kurtosis(X, axis=1)
+        means[indices] = np.mean(X, axis=1)
+        maxs[indices] = np.max(X, axis=1)
+        mins[indices] = np.min(X, axis=1)
+        stddevs[indices] = np.std(X, axis=1)
+        kurts[indices] = kurtosis(X, axis=1)
 
     np.save("means", means)
     np.save("maxs", maxs)
@@ -90,6 +98,14 @@ if __name__ == "__main__":
     names_filtered = neurovault_data.images[~exclude]
     clf = OneClassSVM(nu=0.01, kernel="linear")
     clf.fit(X_data_filtered)
+
+    # we know that the data from this collection is clean because it was
+    # uploaded by Bertrand
+    clean = datasets.fetch_neurovault(max_images=None, mode='offline',
+                                      image_terms={'collection_id': 656})
+    X_bertrand = get_data_by_names(clean.images)
+    np.testing.assert_equal(clf.predict(get_dummy_features(X_bertrand)), 1.)
+
     pred = clf.predict(X_data_filtered)
     # getting back the indices of the outliers in the non filtered data:
     outliers = inds_filtered[np.where(pred != 1.)[0]]
@@ -127,21 +143,20 @@ if __name__ == "__main__":
         X_compressed = cluster.inverse_transform(X_reduced)
 
         cut_coords = (-34, -16)
-        for n_image in range(10):
-            compress_fig = plot_epi(masker.inverse_transform(X_compressed[n_image]),
+        for n_img in range(10):
+            compress_fig = plot_epi(masker.inverse_transform(X_compressed[n_img]),
                                     title='compressed', display_mode='yz',
                                     cut_coords=cut_coords)
 
-            original_fig = plot_epi(masker.inverse_transform(X[n_image]),
+            original_fig = plot_epi(masker.inverse_transform(X[n_img]),
                                     title='original', display_mode='yz',
                                     cut_coords=cut_coords)
 
-            compress_fig.savefig('figures_valid/%d_compress.png' % n_image)
-            original_fig.savefig('figures_valid/%d_original.png' % n_image)
+            compress_fig.savefig('figures_valid/%d_compress.png' % n_img)
+            original_fig.savefig('figures_valid/%d_original.png' % n_img)
 
     # get all compressed data
     X_reduced = np.zeros((n_samples, n_dims_reduced))
-
     slice_size = 500
     for slice_start in range(0, n_samples, slice_size):
         print("Processing slice starting at %d" % slice_start)
@@ -151,7 +166,32 @@ if __name__ == "__main__":
         X_reduced[slice_start: slice_end] = cluster.transform(X)
     np.save("X_reduced.npy", X_reduced)
 
+    # KMeans only on valid data
+    n_clusters = 10
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(
+        X_reduced[valid])
+    labels = kmeans.labels_  # this gives 9 clusters with population < 4
 
-    dd = datasets.fetch_neurovault(max_images=None, mode='offline',
-                                   image_terms={'collection_id': 656})
-    X_bertrand = get_data_by_names(dd.images)
+    populations = np.bincount(labels)
+    plt.close('all')
+    for ix in range(n_clusters):
+        if populations[ix] < 5:
+            this_cluster = valid[labels == ix]
+            for i, img in enumerate(X_reduced[this_cluster]):
+                img_compressed = cluster.inverse_transform(img)
+                compress_fig = plot_epi(masker.inverse_transform(img_compressed),
+                                        title='compressed', display_mode='yz',
+                                        cut_coords=cut_coords)
+
+                img_original = get_data_by_names([neurovault_data.images[this_cluster[i]]])[0]
+                original_fig = plot_epi(masker.inverse_transform(img_original),
+                                        title='original', display_mode='yz',
+                                        cut_coords=cut_coords)
+
+                compress_fig.savefig('figures_kmeans/cluster%d_%d_compress.png' %
+                                     (ix, i))
+                original_fig.savefig('figures_kmeans/cluster%d_%d_original.png' %
+                                     (ix, i))
+
+
+    plt.show()
