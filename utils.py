@@ -14,16 +14,10 @@ def load_data(verbose=0, image_terms=None):
     return neurovault_data
 
 
-def preprocess_data(neurovault_data, n_samples):
-    """Return the first n_samples of neurovault, preprocessed with a
-       MNI 152 mask.
+def preprocess_data(masker, neurovault_data, n_samples):
+    """Return the first n_samples of neurovault, preprocessed with the given
+        mask
     """
-    target_img = datasets.load_mni152_brain_mask()
-    masker = NiftiMasker(
-        mask_img=target_img, smoothing_fwhm=2, standardize=False,
-        target_affine=target_img.affine, target_shape=target_img.shape,
-        memory='nilearn_cache')
-    masker = masker.fit()
 
     X_ = []
     for file_name in neurovault_data["images"][:n_samples]:
