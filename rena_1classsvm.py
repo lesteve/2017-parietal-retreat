@@ -92,16 +92,16 @@ if __name__ == "__main__":
         stddevs = np.load("stddevs.npy")
         kurts = np.load("kurts.npy")
 
-    X_data = np.concatenate([means[:, None], maxs[:, None], mins[:, None],
+    dummy_features = np.concatenate([means[:, None], maxs[:, None], mins[:, None],
                              stddevs[:, None], kurts[:, None]],
                             axis=1)
     # first step: exclude data with nan features:
-    exclude = np.isnan(X_data).any(axis=1)
-    X_data_filtered = X_data[~exclude]
+    exclude = np.isnan(dummy_features).any(axis=1)
+    dummy_features_filtered = dummy_features[~exclude]
     inds_filtered = np.arange(n_samples)[~exclude]
     names_filtered = neurovault_data.images[~exclude]
     clf = OneClassSVM(nu=0.3, kernel="linear")
-    clf.fit(X_data_filtered)
+    clf.fit(dummy_features_filtered)
 
     # sanity check :we know that the data from this collection is clean
     # because it was uploaded by Bertrand
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     # the following fails if nu is too high
     np.testing.assert_equal(clf.predict(get_dummy_features(X_bertrand)), 1.)
 
-    pred = clf.predict(X_data_filtered)
+    pred = clf.predict(dummy_features_filtered)
     # getting back the indices of the outliers in the non filtered data:
     outliers = inds_filtered[pred != 1.]
     print("# of outliers: %d" % np.sum(pred != 1.))
@@ -130,13 +130,19 @@ if __name__ == "__main__":
     # train ReNA on valid data
     valid = inds_filtered[pred == 1]
     n_samples_rena = 500
+    np.random.seed(24)
     ind_train_rena = np.random.choice(valid, n_samples_rena, replace=False)
     X_train_rena = get_data_by_indices(masker, neurovault_data, ind_train_rena)
 
     # X_train_data should be only composed of valid data, however the following
     # fails:
-    np.testing.assert_equal(clf.predict(get_dummy_features(X_train_rena)),
-                            1.)
+    pred_train_rena = clf.predict(get_dummy_features(X_train_rena))
+    np.testing.assert_equal(pred_train_rena, 1.)
+    # this is because some of the images contain NaN, which makes resampling
+    # ill-defined. So X_train_rena is not exactly the same each time
+    # it is safer to repredict on X_train_rena dummy features and exclude
+    # newly found outliers
+    X_train_rena = X_train_rena[pred_train_rena == 1]
 
     n_dims_reduced = 2000  # arbitrary
     cluster = ReNA(masker=masker, n_clusters=n_dims_reduced)
